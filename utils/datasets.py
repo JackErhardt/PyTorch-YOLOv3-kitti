@@ -47,10 +47,12 @@ class ImageFolder(Dataset):
 
 
 class ListDataset(Dataset):
-    def __init__(self, list_path, img_size=416):
-        with open(list_path, 'r') as file:
+    def __init__(self, image_path, label_path, img_size=416):
+        with open(image_path, 'r') as file:
             self.img_files = file.readlines()
-        self.label_files = [path.replace('images', 'labels').replace('.png', '.txt').replace('.jpg', '.txt') for path in self.img_files]
+        with open(label_path, 'r') as file:
+            self.label_files = file.readlines()
+        # self.label_files = [path.replace('images', 'labels').replace('.png', '.txt').replace('.jpg', '.txt') for path in self.img_files]
         self.img_shape = (img_size, img_size)
         self.max_objects = 50
 

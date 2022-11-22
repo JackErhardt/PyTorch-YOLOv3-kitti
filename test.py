@@ -50,8 +50,9 @@ if cuda:
     model = model.cuda()
     model.eval()
 # Get dataloader
-test_path = data_config["valid"]
-dataset = ListDataset(test_path)
+test_image_path = data_config["valid"]
+test_label_path = data_config["label"]
+dataset = ListDataset(test_image_path, test_label_path)
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=False, num_workers=opt.n_cpu)
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 loss_data_file = open('test_data.txt','w+')

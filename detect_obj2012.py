@@ -55,6 +55,7 @@ def main():
 	
 	for batch_i, ((path_l, img_l), (path_r, img_r)) in enumerate(zip(dataloader_l, dataloader_r)):
 		print(batch_i)
+		print(path_l)
 		# Convert format
 		img_l = Variable(img_l.type(torch.cuda.FloatTensor))
 		img_r = Variable(img_r.type(torch.cuda.FloatTensor))

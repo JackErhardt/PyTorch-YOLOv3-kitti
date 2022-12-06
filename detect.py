@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.ticker import NullLocator
 
-kitti_weights = 'weights/kitti.weights'
+kitti_weights = 'weights/yolov3-kitti.weights'
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--image_folder', type=str, default='data/samples/', help='path to dataset')
@@ -87,7 +87,7 @@ for batch_i, (img_paths, input_imgs) in enumerate(dataloader):
 
 # Bounding-box colors
 #cmap = plt.get_cmap('tab20b')
-cmap = plt.get_cmap('Vega20b')
+cmap = plt.get_cmap('Blues')
 colors = [cmap(i) for i in np.linspace(0, 1, 20)]
 
 print ('\nSaving images:')
@@ -105,8 +105,6 @@ for img_i, (path, detections) in enumerate(zip(imgs, img_detections)):
     #kitti_img_size = 11*32
     kitti_img_size = 416
     # The amount of padding that was added
-    #pad_x = max(img.shape[0] - img.shape[1], 0) * (opt.img_size / max(img.shape))
-    #pad_y = max(img.shape[1] - img.shape[0], 0) * (opt.img_size / max(img.shape))
     pad_x = max(img.shape[0] - img.shape[1], 0) * (kitti_img_size / max(img.shape))
     pad_y = max(img.shape[1] - img.shape[0], 0) * (kitti_img_size / max(img.shape))
     # Image height and width after padding is removed

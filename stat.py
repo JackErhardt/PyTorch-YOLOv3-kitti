@@ -9,6 +9,8 @@ import sys
 import time
 import datetime
 import argparse
+import math
+import parse
 
 import pickle
 import numpy as np
@@ -17,8 +19,6 @@ import cv2
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from   matplotlib.ticker import NullLocator
-
-disp_folder = "/afs/eecs.umich.edu/vlsisp/users/erharj/TinyHITNet/result_predict/obj2012_HITNet"
 
 #############################################################################################
 ## Utility Functions                                                                       ##
@@ -51,10 +51,12 @@ def iou(
     disp1=None,             # Disparity of left detection; optional, used for disparity correction
 ):
     # Get KITTI domain coordinates
-    wl1, hu1, box_w1, box_h1 = cvt_domain(det1)
-    wr1, hd1 = wl1 + box_w1, hu1 + box_h1
-    wl2, hu2, box_w2, box_h2 = cvt_domain(det2)
-    wr2, hd2 = wl2 + box_w2, hu2 + box_h2
+    # wl1, hu1, box_w1, box_h1 = cvt_domain(det1)
+    # wr1, hd1 = wl1 + box_w1, hu1 + box_h1
+    # wl2, hu2, box_w2, box_h2 = cvt_domain(det2)
+    # wr2, hd2 = wl2 + box_w2, hu2 + box_h2
+    wl1, hu1, wr1, hd1 = det1[0:4]
+    wl2, hu2, wr2, hd2 = det2[0:4]
 
     # If detection 1 disparity is given, correct for it
     if disp1 is not None:
@@ -83,9 +85,11 @@ def iou(
 def get_disparity(
     path_l,                 # Path to original left image
     dets_l,                 # Array of detections in left image
+    disp_folder,            # Path to disparity folder
 ):
     # Get disparity image
-    path_disp = disp_folder + "/" + path_l.split('/')[-1]
+    path_disp = disp_folder + path_l.split('/')[-1]
+    print(path_disp)
     disp_full = cv2.imread(path_disp, cv2.IMREAD_UNCHANGED)
 
     # Get disparities
@@ -93,10 +97,12 @@ def get_disparity(
     for idx_l, det_l in enumerate(dets_l):
 
         # Get KITTI domain coordinates
-        wl, hu, box_w, box_h = cvt_domain(det_l, img_h=disp_full.shape[0], img_w=disp_full.shape[1])
+        # wl, hu, box_w, box_h = cvt_domain(det_l, img_h=disp_full.shape[0], img_w=disp_full.shape[1])
+        wl, hu, wr, hd = [int(k) for k in det_l[0:4]]
+        w, h = wr-wl, hd-hu
 
-        if box_h != 0 and box_w != 0: # Some detections are real fucking small I guess
-            disp_l = np.mean(  disp_full[max(0, hu):min(374, hu+box_h), max(0, wl):min(1241, wl+box_w), 0])
+        if h != 0 and w != 0: # Some detections are real fucking small I guess
+            disp_l = np.mean(  disp_full[max(0, hu):min(374, hd), max(0, wl):min(1241, wr), 0])
         else:
             disp_l = 0
         disps_l += [disp_l]
@@ -122,10 +128,12 @@ def get_padding(
             det_r = dets_r[idx_r]
 
             # Get KITTI domain coordinates
-            wl_l, hu_l, box_w_l, box_h_l = cvt_domain(det_l)
-            wr_l, hd_l = wl_l + box_w_l, hu_l + box_h_l
-            wl_r, hu_r, box_w_r, box_h_r = cvt_domain(det_r)
-            wr_r, hd_r = wl_r + box_w_r, hu_r + box_h_r
+            # wl_l, hu_l, box_w_l, box_h_l = cvt_domain(det_l)
+            # wr_l, hd_l = wl_l + box_w_l, hu_l + box_h_l
+            # wl_r, hu_r, box_w_r, box_h_r = cvt_domain(det_r)
+            # wr_r, hd_r = wl_r + box_w_r, hu_r + box_h_r
+            wl_l, hu_l, wr_l, hd_l = det_l[0:4]
+            wl_r, hu_r, wr_r, hd_r = det_r[0:4]
 
             # Get bounding box coordinates (camera domain)
             bbox_wl = min(wl_l, wl_r)
@@ -160,6 +168,7 @@ def plot_image(
     classes,                # Class labels
     disps_l,                # Disparities of left detections
     plot_disparity=False,   # Plot disparity map as third image; optional, default false
+    disp_folder=None,       # Path to disparity folder; optional, only needed if plot_disparity is True
     matching=None,          # Matching dictionaries (l2r, r2l); optional, used for coloring
     bboxes=None,            # Bounding boxes; optional, plotted on images and disparity
     path_out=None,          # Output file directory for saving; optional, file not saved if not passed
@@ -174,15 +183,16 @@ def plot_image(
     ax_r.axis('off')
 
     # Get images (no ketchup, just images, raw images)
-    img_l = np.array(Image.open(path_l))
-    img_r = np.array(Image.open(path_r))
-    if plot_disparity:
-        img_d = np.array(Image.open(disp_folder + "/" + path_l.split('/')[-1]))
+    img_l = cv2.imread(path_l, cv2.IMREAD_COLOR)
+    img_r = cv2.imread(path_r, cv2.IMREAD_COLOR)
+    if plot_disparity and (disp_folder is not None):
+        # img_d = np.array(Image.open(disp_folder + path_l.split('/')[-1]))
+        img_d = cv2.imread(disp_folder + path_l.split('/')[-1])
 
     # Plot images
     ax_l.imshow(img_l)
     ax_r.imshow(img_r)
-    if plot_disparity:
+    if plot_disparity and (disp_folder is not None):
         ax_d.imshow(img_d)
 
     # Get colors
@@ -195,7 +205,8 @@ def plot_image(
     for idx_l, det_l in enumerate(dets_l):
 
         # Get KITTI domain coordinates
-        wl, hu, box_w, box_h = cvt_domain(det_l, img_h=img_l.shape[0], img_w=img_l.shape[1])
+        # wl, hu, box_w, box_h = cvt_domain(det_l, img_h=img_l.shape[0], img_w=img_l.shape[1])
+        wl, hu, wr, hd = [int(k) for k in det_l[0:4]]
 
         # Get detection color
         if matching is not None:
@@ -211,8 +222,8 @@ def plot_image(
         # Plot this detection on the left image
         bbox_l = patches.Rectangle(
             (wl, hu), 
-            box_w, 
-            box_h, 
+            wr-wl, 
+            hd-hu, 
             linewidth=1, 
             edgecolor=color, 
             facecolor='none',
@@ -220,23 +231,23 @@ def plot_image(
         )
         ax_l.add_patch(bbox_l)
 
-        # Label this detection on the left image
-        if matching is not None:
-            l2r, r2l = matching
-            if l2r[idx_l] is not None:
-                text = '{} ({})'.format(classes[int(det_l[6])], idx_l)
-            else:
-                text = '{} (X)'.format(classes[int(det_l[6])])
-        else:
-            text = '{}'.format(classes[int(det_l[6])])
-        ax_l.text(
-            wl, 
-            hu-30, 
-            s=text,
-            color='white' if matching is not None else 'black',
-            verticalalignment='top',
-            bbox={'color':color, 'pad':0}
-        )
+        # # Label this detection on the left image
+        # if matching is not None:
+        #     l2r, r2l = matching
+        #     if l2r[idx_l] is not None:
+        #         text = '{}'.format(idx_l)
+        #     else:
+        #         text = 'X'
+        # else:
+        #     text = '{}'.format(idx_l)
+        # ax_l.text(
+        #     wl, 
+        #     hu+box_h+30, 
+        #     s=text,
+        #     color='white' if matching is not None else 'black',
+        #     verticalalignment='top',
+        #     bbox={'color':color, 'pad':0}
+        # )
 
         # Plot the corresponding bounding box on the left image
         if (matching is not None) and (bboxes is not None):
@@ -257,7 +268,8 @@ def plot_image(
     for idx_r, det_r in enumerate(dets_r):
 
         # Get KITTI domain coordinates
-        wl, hu, box_w, box_h = cvt_domain(det_r, img_h=img_l.shape[0], img_w=img_l.shape[1])
+        # wl, hu, box_w, box_h = cvt_domain(det_r, img_h=img_l.shape[0], img_w=img_l.shape[1])
+        wl, hu, wr, hd = [int(k) for k in det_r[0:4]]
 
         # Get detection color
         if matching is not None:
@@ -273,8 +285,8 @@ def plot_image(
         # Plot this detection on right image
         bbox_r = patches.Rectangle(
             (wl, hu), 
-            box_w, 
-            box_h, 
+            wr-wl, 
+            hd-hu, 
             linewidth=1, 
             edgecolor=color, 
             facecolor='none',
@@ -282,23 +294,23 @@ def plot_image(
         )
         ax_r.add_patch(bbox_r)
     
-        # Label this detection on right image
-        if matching is not None:
-            l2r, r2l = matching
-            if r2l[idx_r] is not None:
-                text = '{} ({})'.format(classes[int(det_r[6])], r2l[idx_r])
-            else:
-                text = '{} (X)'.format(classes[int(det_r[6])])
-        else:
-            text = '{}'.format(classes[int(det_r[6])])
-        ax_r.text(
-            wl, 
-            hu-30, 
-            s=text,
-            color='white' if matching is not None else 'black',
-            verticalalignment='top',
-            bbox={'color':color, 'pad':0}
-        )
+        # # Label this detection on right image
+        # if matching is not None:
+        #     l2r, r2l = matching
+        #     if r2l[idx_r] is not None:
+        #         text = '{}'.format(r2l[idx_r])
+        #     else:
+        #         text = 'X'
+        # else:
+        #     text = '{}'.format(idx_r)
+        # ax_r.text(
+        #     wl, 
+        #     hu-30, 
+        #     s=text,
+        #     color='white' if matching is not None else 'black',
+        #     verticalalignment='top',
+        #     bbox={'color':color, 'pad':0}
+        # )
 
         # Plot the corresponding bounding box on the right image
         if (matching is not None) and (bboxes is not None):
@@ -343,6 +355,58 @@ def plot_image(
         return fig, (ax_l, ax_r, ax_d)
     # plt.close()
 # Returns fig, axes
+
+# Save detections over a dataset as a video
+def save_video(
+    paths_l,
+    paths_r,
+    dets_l,
+    dets_r,
+    classes,
+    disps_l,
+    plot_disparity=False,
+    disp_folder=None,
+    matchings=None,
+    bboxes=None,
+    path_out=None,
+):
+    if path_out is None:
+        path_out = './stat.mp4'
+    if plot_disparity:
+        res = (640, 480)
+    else:
+        res = (610, 407)
+    vid = cv2.VideoWriter(
+        path_out, 
+        cv2.VideoWriter_fourcc(*'mp4v'),
+        10,
+        res
+    )
+
+    for batch_i, (path_l, path_r, det_l, det_r, disp_l) in enumerate(zip(paths_l, paths_r, dets_l, dets_r, disps_l)):
+        print("{}/{}".format(batch_i, len(paths_l)))
+        matching = matchings[batch_i] if matchings is not None else None
+        bbox     = bboxes[batch_i]    if bboxes    is not None else None
+        fig, axes = plot_image(
+            path_l=path_l,
+            path_r=path_r,
+            dets_l=det_l,
+            dets_r=det_r,
+            classes=classes,
+            disps_l=disp_l,
+            plot_disparity=plot_disparity,
+            disp_folder=disp_folder,
+            matching=matching,
+            bboxes=bbox,
+        )
+
+        fig.canvas.draw()
+        frame = np.array(fig.canvas.renderer.buffer_rgba())[:,:,:-1]
+        vid.write(frame)
+        plt.close()
+    vid.release()
+    cv2.destroyAllWindows()
+# Returns nothing
 
 #############################################################################################
 ## Matching Algorithms                                                                     ##
@@ -435,6 +499,55 @@ def match_all(
 
     return l2r, r2l
 # Returns l2r, r2l
+
+# Perform stereo ROI matching by selecting a single ROI from each frame, with temporal information
+def temporal_match(
+    dets_l,             # Array of array of detections in left image
+    dets_r,             # Array of array of detections in right image
+    metric,             # Metric by which single ROI is chosen in each image when temporal metric fails
+):
+    dist_l1 = lambda pt1, pt2 : sum([     abs(crd1 - crd2)    for crd1, crd2 in zip(pt1, pt2)])
+    dist_l2 = lambda pt1, pt2 : sum([math.pow(crd1 - crd2, 2) for crd1, crd2 in zip(pt1, pt2)])
+
+    center_l1 = lambda pt1, pt2 : dist_l1(((pt1[0]+pt1[2])/2, (pt1[1]+pt1[3])/2), ((pt2[0]+pt2[2])/2, (pt2[1]+pt2[3])/2))
+    center_l2 = lambda pt1, pt2 : dist_l2(((pt1[0]+pt1[2])/2, (pt1[1]+pt1[3])/2), ((pt2[0]+pt2[2])/2, (pt2[1]+pt2[3])/2))
+
+    matchings = []
+    idx_l, idx_r = None, None
+    for batch_i, (det_l_n, det_r_n) in enumerate(zip(dets_l, dets_r)):
+        # Seed initial frame
+        if (idx_l is None) or (idx_r is None):
+            l2r_n, r2l_n = single_match(
+                dets_l=det_l_n, 
+                dets_r=det_r_n, 
+                metric=metric
+            )
+        # Check previous frame
+        else:
+            l2r_n = [None for _ in enumerate(det_l_n)]
+            r2l_n = [None for _ in enumerate(det_r_n)]
+
+            # Get previous frame detection coordinates
+            # p_l = cvt_domain(dets_l[batch_i-1][idx_l])
+            # p_r = cvt_domain(dets_r[batch_i-1][idx_r])
+            p_l = det_l[batch_i-1][idx_l]
+            p_r = det_r[batch_i-1][idx_r]
+
+            # Compute distance for all detections in current frame
+            dist_l_n = np.array([center_l1(p_l, p_l_n) for p_l_n in det_l_n])
+            dist_r_n = np.array([center_l1(p_r, p_r_n) for p_r_n in det_r_n])
+
+            # Get detection minimizing distance metric
+            idx_l = None if len(dist_l_n) == 0 else np.argmax(dist_l_n)
+            idx_r = None if len(dist_r_n) == 0 else np.argmax(dist_r_n)
+
+            l2r_n[idx_l] = idx_r
+            r2l_n[idx_r] = idx_l
+
+        matchings += [(l2r_n, r2l_n)]
+
+    return matchings
+# Returns matchings
 
 #############################################################################################
 ## Evaluation Metrics                                                                      ##
@@ -545,11 +658,11 @@ def pad_stats(
         for idx_l, _ in enumerate(det_l):
             idx_r = l2r[idx_l]
             if idx_r is not None:
-                _, _, det_w_l, det_h_l = cvt_domain(det_l[idx_l])
-                _, _, det_w_r, det_h_r = cvt_domain(det_r[idx_r])
+                # _, _, det_w_l, det_h_l = cvt_domain(det_l[idx_l])
+                # _, _, det_w_r, det_h_r = cvt_domain(det_r[idx_r])
 
-                bbox_det_ratio_l += [(1.0 * box_area(bbox[idx_l])) / (1.0 * det_w_l * det_h_l)]
-                bbox_det_ratio_r += [(1.0 * box_area(bbox[idx_l])) / (1.0 * det_w_r * det_h_r)]
+                bbox_det_ratio_l += [(1.0 * box_area(bbox[idx_l])) / (1.0 * box_area(det_l[idx_l]))]
+                bbox_det_ratio_r += [(1.0 * box_area(bbox[idx_l])) / (1.0 * box_area(det_r[idx_r]))]
                 pads_array_l     += [pad_l[idx_l]]
                 pads_array_r     += [pad_r[idx_r]]
 
@@ -572,19 +685,93 @@ def pad_stats(
 # Returns bbox_det_ratio_l_stat, bbox_det_ratio_r_stat, (pad_wl_l_stat, pad_hu_l_stat, pad_wr_l_stat, pad_hd_l_stat), (pad_wl_r_stat, pad_hu_r_stat, pad_wr_r_stat, pad_hd_r_stat)
 
 #############################################################################################
+## Object Tracking Methods                                                                 ##
+#############################################################################################
+
+# Track objects in a segment with object detection keyframes
+def object_track(
+    paths_l,                # Array of left image paths, assumed sequential
+    paths_r,                # Array o right image paths, assumed sequential
+    dets_l,                 # Array of array of detections in left images
+    dets_r,                 # Array of array of detections in right images
+    tracker_type,           # OpenCV Object Tracking type
+):
+
+    tracks_l = [[] for frame in range(len(paths_l))]
+    tracks_r = [[] for frame in range(len(paths_r))]
+
+    print("&&& Creating Tracker")
+
+    # Create object tracker
+    if tracker_type == 'BOOSTING':
+        tracker = cv2.legacy.TrackerBoosting_create()
+    elif tracker_type == 'MIL':
+        tracker = cv2.legacy.TrackerMIL_create()
+    elif tracker_type == 'KCF':
+        tracker = cv2.legacy.TrackerKCF_create()
+    elif tracker_type == 'TLD':
+        tracker = cv2.legacy.TrackerTLD_create()
+    elif tracker_type == 'MEDIANFLOW':
+        tracker = cv2.legacy.TrackerMedianFlow_create()
+    elif tracker_type == 'GOTURN':
+         tracker = cv2.TrackerGOTURN_create()
+    elif tracker_type == 'MOSSE':
+        tracker = cv2.legacy.TrackerMOSSE_create()
+    elif tracker_type == "CSRT":
+        tracker = cv2.legacy.TrackerCSRT_create()
+
+    print("&&& Initializing Tracker")
+
+    # Create the bounding box and initialize the tracker
+    wl, hu, wr, hd = dets_l[0][0][0:4]
+    tracks_l[0] = dets_l[0]
+    w, h = wr-wl, hd-hu
+    bbox = (wl, hu, w, h)
+    # frame = np.array(Image.open(paths_l[0]))
+    frame = cv2.imread(paths_l[0], cv2.IMREAD_COLOR)
+    ok = tracker.init(frame, bbox)
+
+    print("&&& Analyzing Video")
+
+    # Iterate over the rest of the video
+    for frame_i, (path_l, path_r, det_l, det_r) in enumerate(zip(paths_l, paths_r, dets_l, dets_r)):
+        print("{}/{}".format(frame_i, len(dets_l)))
+        if frame_i == 0:
+            continue
+
+        print("&&& Opening Image")
+        # frame = np.array(Image.open(path_l))
+        frame = cv2.imread(path_l, cv2.IMREAD_COLOR)
+
+        # Update tracker
+        print("&&& Updating Tracker")
+        ok, bbox = tracker.update(frame)
+        if ok:
+            print("&&& Appending Data")
+            wl, hu, w, h = bbox
+            wr, hd = wl+w, hu+h
+            tracks_l[frame_i] += [[wl, hu, wr, hd, 1.0, 1.0, 0]]
+
+    return tracks_l, tracks_r
+# Returns tracks_l, tracks_r
+
+#############################################################################################
 ## Main                                                                                    ##
 #############################################################################################
 
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--results_file', type=str,   default='dump/all/kittiobj.dump', help='Path to pickle dump file containing results')
-    parser.add_argument('--class_path',   type=str,   default='data/kitti.names',       help='Path to class label file')
-    parser.add_argument('--matching',     type=str,   default='Single',                 help='Type of stereo detection matching')
-    parser.add_argument('--conf_thres',   type=float, default=0.8,                      help='Object confidence threshold')
-    parser.add_argument('--iou_thres',    type=float, default=0.5,                      help='IoU threshold for non-maximum suppression and stereo matching')
-    parser.add_argument('--program_mode', type=str,   default='Save Images',            help='Program Mode')
-    parser.add_argument('--output_path',  type=str,   default='data/output/',           help='Path for saving output images')
+    parser.add_argument('--results_file', type=str,   default='dump/obj/all/kittiobj.dump', help='Path to pickle dump file containing results')
+    parser.add_argument('--coord_domain', type=str,   default='YOLO',                       help='Spatial coordinate domain; YOLO or KITTI')
+    parser.add_argument('--class_path',   type=str,   default='data/kitti.names',           help='Path to class label file')
+    parser.add_argument('--matching',     type=str,   default='Single',                     help='Type of stereo detection matching')
+    parser.add_argument('--conf_thres',   type=float, default=0.8,                          help='Object confidence threshold')
+    parser.add_argument('--iou_thres',    type=float, default=0.5,                          help='IoU threshold for non-maximum suppression and stereo matching')
+    parser.add_argument('--program_mode', type=str,   default='Print',                      help='Program Mode')
+    parser.add_argument('--disp_folder',  type=str,   default='/afs/eecs.umich.edu/vlsisp/users/erharj/TinyHITNet/result_predict/obj2012_HITNet/', help='Path to disparity images for the dataset')
+    parser.add_argument('--tracking',     type=str,   default='BOOSTING',                   help='Tracking algorithm; BOOSTING, MIL, KCF, TLD, MEDIANFLOW, GOTURN, MOSSE, CSRT')
+    parser.add_argument('--output_path',  type=str,   default='data/output/',               help='Path for saving output images')
     opt = parser.parse_args()
 
     # Get classes
@@ -592,49 +779,67 @@ def main():
 
     # Load results
     with open(opt.results_file, 'rb') as results_file:
-        paths_l, paths_r, dets_l, dets_r, disps_l = pickle.load(results_file)
+        if opt.program_mode == 'Disparity':
+            paths_l, paths_r, dets_l, dets_r = pickle.load(results_file)
+        else:
+            paths_l, paths_r, dets_l, dets_r, disps_l = pickle.load(results_file)
 
-    # # Compute left detection disparities
-    # print(">>> Computing Left Detection Disparities")
-    # disps_l = []
-    # for batch_i, (path_l, path_r, det_l, det_r) in enumerate(zip(paths_l, paths_r, dets_l, dets_r)):
-    #     disp_l = get_disparity(
-    #         path_l=path_l,
-    #         dets_l=det_l,
-    #     )
-    #     disps_l += [disp_l]
+    # Convert YOLO Coordinates to KITTI Coordinates
+    if opt.coord_domain == 'YOLO':
+        for batch_i, (det_l, det_r) in enumerate(zip(dets_l, dets_r)):
+            for idx_l, _ in enumerate(det_l):
+                wl, hu, w, h = cvt_domain(det_l[idx_l])
+                wr, hd = wl+w, hu+h
+                det_l[idx_l][0:4] = [wl, hu, wr, hd]
+            for idx_r, _ in enumerate(det_r):
+                wl, hu, w, h = cvt_domain(det_r[idx_r])
+                wr, hd = wl+w, hu+h
+                det_r[idx_r][0:4] = [wl, hu, wr, hd]
+
+    # Compute left detection disparities, if needed
+    if opt.program_mode == 'Disparity':
+        print(">>> Computing Left Detection Disparities")
+        disps_l = []
+        for batch_i, (path_l, path_r, det_l, det_r) in enumerate(zip(paths_l, paths_r, dets_l, dets_r)):
+            # print(path_l)
+            disp_l = get_disparity(
+                path_l=path_l,
+                dets_l=det_l,
+                disp_folder=opt.disp_folder
+            )
+            disps_l += [disp_l]
 
     # Compute matchings
     print(">>> Computing Matchings")
     matchings = []
-    for batch_i, (det_l, det_r, disp_l) in enumerate(zip(dets_l, dets_r, disps_l)):
-        # Useful lambda functions
-        wl       = lambda det : det[0]
-        hu       = lambda det : det[1]
-        wr       = lambda det : det[2]
-        hd       = lambda det : det[3]
-        conf     = lambda det : det[4]
-        cls_conf = lambda det : det[5]
-        cls_pred = lambda det : classes[int(det[6])]
-        det_area = lambda det : (hd(det) - hu(det)) * (wr(det) - wl(det))
-
-        if opt.matching == 'Single':
+    cls_conf = lambda det : det[5]
+    cls_pred = lambda det : classes[int(det[6])]
+    det_area = lambda det : (det[3] - det[1]) * (det[2] - det[0])
+    if   opt.matching == 'Temporal':
+        matchings = temporal_match(
+            dets_l=dets_l,
+            dets_r=dets_r,
+            metric=det_area,
+        )
+    elif opt.matching == 'Single':
+        for batch_i, (det_l, det_r) in enumerate(zip(dets_l, dets_r)):
             matching = single_match(
                 dets_l=det_l,
                 dets_r=det_r,
-                metric=lambda det : conf(det),
+                metric=det_area,
             )
-        elif opt.matching == 'All':
+            matchings += [matching]
+    elif opt.matching == 'All':
+        for batch_i, (det_l, det_r, disp_l) in enumerate(zip(dets_l, dets_r, disps_l)):
             matching = match_all(
-              dets_l=det_l, 
-              dets_r=det_r, 
-              classes=classes, 
-              iou_thres=opt.iou_thres,
-              disps_l=disp_l,
-              class_match=False,
+                dets_l=det_l, 
+                dets_r=det_r, 
+                classes=classes, 
+                iou_thres=opt.iou_thres,
+                disps_l=disp_l,
+                class_match=True,
             )
-
-        matchings += [matching]
+            matchings += [matching]
 
     # Compute bounding boxes and padding
     print(">>> Computing Bounding Boxes")
@@ -652,7 +857,12 @@ def main():
         pads_r += [pad_r]
 
     # Run main program
-    if   opt.program_mode == 'Imbalance':
+    if   opt.program_mode == 'Disparity':
+        print(">>> Performing Disparity")
+        with open(opt.results_file, 'wb') as f:
+            pickle.dump((paths_l, paths_r, dets_l, dets_r, disps_l), file=f)
+
+    elif opt.program_mode == 'Imbalance':
         # Compute Imbalance
         print(">>> Computing Imbalance")
         ylyr, ylnr, nlyr, nlnr = det_imbalance_count(dets_l, dets_r)
@@ -720,6 +930,30 @@ def main():
         print("R→:    {:9.5f}  {:9.5f}  {:9.5f}".format(*pad_r_stat[2]))
         print("R↓:    {:9.5f}  {:9.5f}  {:9.5f}".format(*pad_r_stat[3]))
 
+    elif opt.program_mode == 'Tracking':
+        print(">>> Performing Tracking")
+        tracks_l, tracks_r = object_track(
+            paths_l=paths_l,
+            paths_r=paths_r,
+            dets_l=dets_l,
+            dets_r=dets_r,
+            tracker_type=opt.tracking,
+        )
+
+        save_video(
+            paths_l=paths_l,
+            paths_r=paths_r,
+            dets_l=tracks_l,
+            dets_r=tracks_r,
+            classes=classes,
+            disps_l=disps_l,
+            plot_disparity=True,
+            disp_folder=opt.disp_folder,
+            # matchings=matchings,
+            # bboxes=bboxes,
+            path_out=opt.output_path,
+        )
+
     elif opt.program_mode == 'Filter':
         # Filter frames and save as a subset list
         print(">>> Performing Filter")
@@ -730,7 +964,7 @@ def main():
         save_disps_l = []
 
         for batch_i, (path_l, path_r, det_l, det_r, disp_l, matching) in enumerate(zip(paths_l, paths_r, dets_l, dets_r, disps_l, matchings)):
-            condition = False
+            # condition = True
 
             # Your condition goes here!
 
@@ -740,58 +974,60 @@ def main():
             # # CONDITION - Balance
             # condition = (det_l != []) and (det_r != [])
 
-            l2r, r2l = matching
-            for idx_l, _ in enumerate(det_l):
-                if l2r[idx_l] is not None:
-                    idx_r = l2r[idx_l]
-
-                    # class_l = classes[int(det_l[idx_l][6])]
-                    # class_r = classes[int(det_r[idx_r][6])]
-        
-                    # # CONDITION - Class Mismatch
-                    # condition = (class_l != class_r)
-
-                    # # CONDITION - Class Match
-                    # condition = (class_l == class_r)
-
-                    iou_l = iou(
-                        det1=det_l[idx_l],
-                        det2=det_r[idx_r],
-                        disp1=disp_l[idx_l],
-                    )
-
-                    # # CONDITION - IoU Mismatch
-                    # condition = (iou_l < opt.iou_thres)
-
-                    # CONDITION - IoU Match
-                    condition = (iou_l > opt.iou_thres)
-
-                    break            
-
-            if condition:
-                save_paths_l += [path_l]
-                save_paths_r += [path_r]
-                save_dets_l += [det_l]
-                save_dets_r += [det_r]
-                save_disps_l += [disp_l]
-
-            # save_det_l = []
-            # save_det_r = []
-            # save_disp_l = []
-
+            # l2r, r2l = matching
             # for idx_l, _ in enumerate(det_l):
-            #     if classes[int(det_l[idx_l][6])] == 'Car':
-            #         save_det_l += [det_l[idx_l]]
-            #         save_disp_l += [disp_l[idx_l]]
-            # for idx_r, _ in enumerate(det_r):
-            #     if classes[int(det_r[idx_r][6])] == 'Car':
-            #         save_det_r += [det_r[idx_r]]
+            #     if l2r[idx_l] is not None:
+            #         idx_r = l2r[idx_l]
 
-            # save_paths_l += [path_l]
-            # save_paths_r += [path_r]
-            # save_dets_l += [save_det_l]
-            # save_dets_r += [save_det_r]
-            # save_disps_l += [save_disp_l]
+            #         # class_l = classes[int(det_l[idx_l][6])]
+            #         # class_r = classes[int(det_r[idx_r][6])]
+        
+            #         # # CONDITION - Class Mismatch
+            #         # condition = (class_l != class_r)
+
+            #         # # CONDITION - Class Match
+            #         # condition = (class_l == class_r)
+
+            #         iou_l = iou(
+            #             det1=det_l[idx_l],
+            #             det2=det_r[idx_r],
+            #             disp1=disp_l[idx_l],
+            #         )
+
+            #         # # CONDITION - IoU Mismatch
+            #         # condition = (iou_l < opt.iou_thres)
+
+            #         # # CONDITION - IoU Match
+            #         # condition = (iou_l > opt.iou_thres)
+
+            #         break            
+
+            # condition = all([idx_r is None for idx_r in l2r])
+
+            # if condition:
+            #     save_paths_l += [path_l]
+            #     save_paths_r += [path_r]
+            #     save_dets_l += [det_l]
+            #     save_dets_r += [det_r]
+            #     save_disps_l += [disp_l]
+
+            save_det_l = []
+            save_det_r = []
+            save_disp_l = []
+
+            for idx_l, _ in enumerate(det_l):
+                if classes[int(det_l[idx_l][6])] == 'Car':
+                    save_det_l += [det_l[idx_l]]
+                    save_disp_l += [disp_l[idx_l]]
+            for idx_r, _ in enumerate(det_r):
+                if classes[int(det_r[idx_r][6])] == 'Car':
+                    save_det_r += [det_r[idx_r]]
+
+            save_paths_l += [path_l]
+            save_paths_r += [path_r]
+            save_dets_l += [save_det_l]
+            save_dets_r += [save_det_r]
+            save_disps_l += [save_disp_l]
 
         with open(opt.output_path, 'wb') as f:
             pickle.dump((save_paths_l, save_paths_r, save_dets_l, save_dets_r, save_disps_l), file=f)
@@ -811,14 +1047,30 @@ def main():
                 dets_r=det_r,
                 classes=classes,
                 disps_l=disp_l,
-                plot_disparity=True,
+                # plot_disparity=True,
+                # disp_folder=opt.disp_folder,
                 # matching=matching,
                 # bboxes=bbox,
                 path_out='{}{}'.format(opt.output_path, path_l.split('/')[-1]),
             )
 
         plt.close()
-        # plt.imshow()
+
+    elif opt.program_mode == 'Video':
+        print(">>> Performing Video")
+        save_video(
+            paths_l=paths_l,
+            paths_r=paths_r,
+            dets_l=dets_l,
+            dets_r=dets_r,
+            classes=classes,
+            disps_l=disps_l,
+            plot_disparity=True,
+            disp_folder=opt.disp_folder,
+            matchings=matchings,
+            # bboxes=bboxes,
+            path_out=opt.output_path,
+        )
 
     else:
         print("!!! Unrecognized Program Mode: {}".format(opt.program_mode))
